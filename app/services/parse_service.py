@@ -20,6 +20,21 @@ def _safe_to(db: Session, task: ApprovalTask, to_status: str) -> None:
         db.commit()
 
 
+def _log_ocr_audit(db: Session, task_id: int, parsed: dict[str, Any]) -> None:
+    """把本次解析方式（文本层 / OCR + provider）写入 task_logs 便于审计。"""
+    meta = parsed.get("ocr_meta") or {}
+    if meta.get("scanned"):
+        msg = (
+            f"OCR 审计: provider={meta.get('provider')} "
+            f"source={meta.get('source')} pages={meta.get('page_count')}"
+        )
+    elif meta:
+        msg = f"解析方式: 文本层提取（非 OCR）source={meta.get('source')}"
+    else:
+        return  # txt/docx 等无 ocr_meta，不记录
+    log_service.log(db, task_id, LogLevel.INFO, LogType.PARSE, msg)
+
+
 def _save_parse(db: Session, task_id: int, parsed: dict[str, Any]) -> ContractParse:
     parse = db.query(ContractParse).filter(ContractParse.task_id == task_id).first()
     if parse:
@@ -72,6 +87,7 @@ def run_parse(db: Session, task_id: int, document_id: int | None = None) -> dict
         parsed = parse_contract_document(att.id, db)
         _save_parse(db, task_id, parsed)
         _safe_to(db, task, TaskStatus.REVIEWING)
+        _log_ocr_audit(db, task_id, parsed)
         log_service.log(
             db, task_id, LogLevel.INFO, LogType.PARSE,
             f"解析完成 status={parsed.get('parse_status')}",

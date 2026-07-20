@@ -1,14 +1,11 @@
-"""图片扫描件 OCR（百度 PaddleOCR）。
+"""图片扫描件 OCR。
 
-优先级：
-1. PaddleOCR **PP-Structure 版面分析**（区分标题/正文/表格，尽量还原表格）—— settings.OCR_USE_LAYOUT=True
-2. PaddleOCR **PP-OCRv4 纯文字识别**
-3. RapidOCR(onnxruntime) 轻量回退
+按 settings.OCR_PROVIDER 路由：
+- baidu_api: 百度智能云文字识别 API（过渡方案，数据上传百度云）
+- local    : 百度飞桨 PaddleOCR 本地推理（默认，数据不出本机；推荐生产）
 
-所有第三方库在函数内部 import，未安装时抛出明确的 BizException(OCR_FAILED)，
-保证本模块自身 import 不依赖这些库。
-
-兼容 paddleocr 2.6~2.7 系列 API；不同版本字段略有差异，已做容错。
+切换：改 settings.OCR_PROVIDER 即可，调用方无感。
+结果中的 ocr_meta 记录实际使用的 provider，供上层写入 task_logs 审计。
 """
 import re
 
@@ -18,29 +15,50 @@ from app.core.exceptions import BizException, Errors
 from app.core.logger import logger
 
 
+def _ocr_file(file_path: str) -> tuple[str, list[str], str]:
+    """统一 OCR 入口（单张图片），返回 (text, tables, provider)。"""
+    provider = getattr(settings, "OCR_PROVIDER", "local")
+    if provider == "baidu_api":
+        text, tables = _parse_with_baidu(file_path)
+    else:
+        text, tables = _parse_with_local(file_path)
+    return text, tables, provider
+
+
 def parse_image(file_path: str) -> dict:
-    # 1. PP-Structure 版面分析
+    """独立图片 OCR，返回与其它解析器一致的结构（含 ocr_meta）。"""
+    text, tables, provider = _ocr_file(file_path)
+    return _finalize(text, tables, provider=provider, source="image")
+
+
+# ----------------------- baidu api ----------------------- #
+
+def _parse_with_baidu(file_path: str) -> tuple[str, list[str]]:
+    from app.engine.parser.baidu_ocr import recognize
+
+    return recognize(file_path)
+
+
+# ----------------------- local (PaddleOCR) ----------------------- #
+
+def _parse_with_local(file_path: str) -> tuple[str, list[str]]:
     if getattr(settings, "OCR_USE_LAYOUT", True):
         try:
-            return _parse_with_ppstructure(file_path)
+            return _local_ppstructure(file_path)
         except ImportError:
-            pass  # 未安装 paddleocr，去试别的
+            pass
         except BizException:
-            raise  # 识别到但无文字，直接抛
+            raise
         except Exception as e:
-            logger.warning(f"PP-Structure 版面分析失败，降级为纯文字识别: {e}")
-
-    # 2. PaddleOCR 纯文字识别
+            logger.warning(f"PP-Structure 版面分析失败，降级纯识别: {e}")
     try:
-        return _parse_with_paddleocr(file_path)
+        return _local_paddleocr(file_path)
     except ImportError:
         pass
     except BizException:
         raise
-
-    # 3. RapidOCR 回退
     try:
-        return _parse_with_rapidocr(file_path)
+        return _local_rapidocr(file_path)
     except ImportError as e:
         raise BizException(
             *Errors.OCR_FAILED,
@@ -48,26 +66,7 @@ def parse_image(file_path: str) -> dict:
         ) from e
 
 
-def _empty_result() -> dict:
-    return {"text": "", "pages": [{"page": 1, "text": ""}],
-            "tables": [], "parse_status": ParseStatus.FAILED, "parse_error": None}
-
-
-def _finalize(text: str, tables: list[str] | None = None) -> dict:
-    full = (text or "").strip()
-    if not full:
-        raise BizException(*Errors.OCR_FAILED, data={"reason": "OCR 未识别到文字"})
-    return {
-        "text": full,
-        "pages": [{"page": 1, "text": full}],
-        "tables": tables or [],
-        "parse_status": ParseStatus.SUCCESS,
-        "parse_error": None,
-    }
-
-
 def _extract_texts_from_res(res) -> list[str]:
-    """从 PP-Structure / PaddleOCR 的 res 结构中尽量抽出文本行，兼容多种返回形态。"""
     out: list[str] = []
     if not res:
         return out
@@ -85,53 +84,48 @@ def _extract_texts_from_res(res) -> list[str]:
             except Exception:
                 continue
     elif isinstance(res, dict):
-        # 表格区域可能是 {'cells': [...], 'html': '...'} 等
         html = res.get("html")
         if html:
-            out.extend(_html_table_to_lines(html))
+            lines = _html_table_to_lines(html)
+            if lines:
+                out.append(lines)
         for v in res.values():
             if isinstance(v, str) and v.strip():
                 out.append(v)
     return out
 
 
-def _html_table_to_lines(html_str: str) -> list[str]:
-    """把 PP-Structure 表格的 html 粗略转成『单元格 | 单元格』文本行。"""
-    cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", html_str, re.S | re.I)
+def _html_table_to_lines(html: str) -> str:
+    cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", html, re.S | re.I)
     cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
     cells = [c for c in cells if c]
-    return [" | ".join(cells)] if cells else []
+    return " | ".join(cells) if cells else ""
 
 
-def _parse_with_ppstructure(file_path: str) -> dict:
+def _local_ppstructure(file_path: str) -> tuple[str, list[str]]:
     from paddleocr import PPStructure
 
     engine = PPStructure(show_log=False, layout=True, table=True, ocr=True, lang="ch")
     result = engine(file_path)
-
-    titles: list[str] = []
-    bodies: list[str] = []
-    tables: list[str] = []
+    titles, bodies, tables = [], [], []
     for region in result or []:
         rtype = region.get("type") if isinstance(region, dict) else None
         region_texts = _extract_texts_from_res(region.get("res") if isinstance(region, dict) else None)
         if rtype == "title":
             titles.extend(region_texts)
         elif rtype == "table":
-            # 表格区域单独保留还原文本
             table_text = _extract_texts_from_res(region) or region_texts
             if table_text:
                 tables.append("\n".join(table_text))
-            tables_lines = region_texts
-            bodies.extend(tables_lines)
-        else:  # text / list / figure 等
             bodies.extend(region_texts)
-
+        else:
+            bodies.extend(region_texts)
     full = "\n".join([*titles, *bodies])
-    return _finalize(full, tables)
+    _ensure_nonempty(full)
+    return full, tables
 
 
-def _parse_with_paddleocr(file_path: str) -> dict:
+def _local_paddleocr(file_path: str) -> tuple[str, list[str]]:
     from paddleocr import PaddleOCR
 
     ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
@@ -145,13 +139,47 @@ def _parse_with_paddleocr(file_path: str) -> dict:
                     lines.append(str(t[0]))
                 elif t:
                     lines.append(str(t))
-    return _finalize("\n".join(lines))
+    full = "\n".join(lines)
+    _ensure_nonempty(full)
+    return full, []
 
 
-def _parse_with_rapidocr(file_path: str) -> dict:
+def _local_rapidocr(file_path: str) -> tuple[str, list[str]]:
     from rapidocr_onnxruntime import RapidOCR
 
     engine = RapidOCR()
     result, _elapsed = engine(file_path)
     lines = [item[1] for item in (result or [])]
-    return _finalize("\n".join(lines))
+    full = "\n".join(lines)
+    _ensure_nonempty(full)
+    return full, []
+
+
+def _ensure_nonempty(text: str) -> None:
+    if not (text or "").strip():
+        raise BizException(*Errors.OCR_FAILED, data={"reason": "OCR 未识别到文字"})
+
+
+def _finalize(
+    text: str,
+    tables: list[str] | None = None,
+    provider: str | None = None,
+    source: str = "image",
+    page_count: int = 1,
+) -> dict:
+    full = (text or "").strip()
+    if not full:
+        raise BizException(*Errors.OCR_FAILED, data={"reason": "OCR 未识别到文字"})
+    return {
+        "text": full,
+        "pages": [{"page": 1, "text": full}],
+        "tables": tables or [],
+        "parse_status": ParseStatus.SUCCESS,
+        "parse_error": None,
+        "ocr_meta": {
+            "scanned": True,
+            "provider": provider,
+            "source": source,
+            "page_count": page_count,
+        },
+    }

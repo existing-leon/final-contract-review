@@ -56,6 +56,18 @@ class Settings(BaseSettings):
     # OCR 版面分析：True 时扫描件优先用 PaddleOCR PP-Structure 做版面+表格还原
     OCR_USE_LAYOUT: bool = True
 
+    # OCR 提供方：local=本地 PaddleOCR（默认，数据不出本机，推荐生产）；
+    #             baidu_api=百度智能云文字识别 API（过渡方案，数据会上传百度云）
+    OCR_PROVIDER: str = "local"
+    # OCR 网络：False=忽略系统/环境代理直连（百度云为国内服务）
+    OCR_TRUST_ENV: bool = False
+
+    # 百度智能云文字识别 OCR（OCR_PROVIDER=baidu_api 时使用）
+    BAIDU_OCR_API_KEY: str = ""
+    BAIDU_OCR_SECRET_KEY: str = ""
+    BAIDU_OCR_GENERAL_URL: str = "https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic"
+    BAIDU_OCR_TABLE_URL: str = "https://aip.baidubce.com/rest/2.0/ocr/v1/table"
+
     @property
     def database_url(self) -> str:
         return (

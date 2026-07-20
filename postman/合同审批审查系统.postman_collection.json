@@ -1,0 +1,228 @@
+{
+  "info": {
+    "name": "合同审批审查系统",
+    "description": "合同审批审查系统后端 21 个 REST 接口联调集合。\n\n闭环顺序（按文件夹从上到下依次执行）：\n1) 任务 → 拉取并去重\n2) 任务 → 任务列表（自动把首个任务 id 写入 task_id / approval_code 变量）\n3) 解析 → 解析合同\n4) 规则审查与结果 → 规则审查\n5) 规则审查与结果 → 查询审查结果（自动写入 review_id 变量）\n6) 规则审查与结果 → 评论回写\n\n默认 base_url=http://127.0.0.1:8000/api/v1，可在 Collection Variables 修改。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000/api/v1" },
+    { "key": "task_id", "value": "1" },
+    { "key": "instance_id", "value": "AP20260720001" },
+    { "key": "approval_code", "value": "AP20260720001" },
+    { "key": "attachment_id", "value": "A1" },
+    { "key": "review_id", "value": "1" },
+    { "key": "rule_id", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "待办与审批",
+      "item": [
+        {
+          "name": "查询待处理审批单列表",
+          "request": { "method": "GET", "url": "{{base_url}}/approvals/pending?limit=20" }
+        },
+        {
+          "name": "审批单详情",
+          "request": { "method": "GET", "url": "{{base_url}}/approvals/{{instance_id}}" }
+        }
+      ]
+    },
+    {
+      "name": "任务",
+      "item": [
+        {
+          "name": "拉取并去重",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"limit\": 20}" },
+            "url": "{{base_url}}/tasks/pull"
+          }
+        },
+        {
+          "name": "任务列表（自动设置 task_id / approval_code）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.items && body.data.items.length) {",
+                  "    pm.collectionVariables.set('task_id', body.data.items[0].id);",
+                  "    pm.collectionVariables.set('approval_code', body.data.items[0].approval_code);",
+                  "    pm.collectionVariables.set('instance_id', body.data.items[0].approval_code);",
+                  "    console.log('已设置 task_id =', body.data.items[0].id, ' approval_code =', body.data.items[0].approval_code);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{base_url}}/tasks?page=1&page_size=20" }
+        },
+        {
+          "name": "任务详情",
+          "request": { "method": "GET", "url": "{{base_url}}/tasks/{{task_id}}" }
+        },
+        {
+          "name": "重试阻塞任务",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"resume_from\": \"parsing\"}" },
+            "url": "{{base_url}}/tasks/{{task_id}}/retry"
+          }
+        }
+      ]
+    },
+    {
+      "name": "附件",
+      "item": [
+        {
+          "name": "附件列表",
+          "request": { "method": "GET", "url": "{{base_url}}/tasks/{{task_id}}/attachments" }
+        },
+        {
+          "name": "下载附件并落库",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"instance_id\": \"{{instance_id}}\", \"file_name\": \"contract.pdf\"}" },
+            "url": "{{base_url}}/tasks/{{task_id}}/attachments/{{attachment_id}}/download"
+          }
+        },
+        {
+          "name": "取本地文件（浏览器直接打开）",
+          "request": { "method": "GET", "url": "{{base_url}}/attachments/1/file" }
+        }
+      ]
+    },
+    {
+      "name": "解析",
+      "item": [
+        {
+          "name": "解析合同",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"document_id\": 0}" },
+            "url": "{{base_url}}/tasks/{{task_id}}/parse"
+          }
+        },
+        {
+          "name": "查询解析结果",
+          "request": { "method": "GET", "url": "{{base_url}}/tasks/{{task_id}}/parse" }
+        }
+      ]
+    },
+    {
+      "name": "规则审查与结果",
+      "item": [
+        {
+          "name": "规则审查",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"case_id\": 0}" },
+            "url": "{{base_url}}/tasks/{{task_id}}/review"
+          }
+        },
+        {
+          "name": "命中列表",
+          "request": { "method": "GET", "url": "{{base_url}}/tasks/{{task_id}}/hits" }
+        },
+        {
+          "name": "查询审查结果（自动设置 review_id）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.id) {",
+                  "    pm.collectionVariables.set('review_id', body.data.id);",
+                  "    console.log('已设置 review_id =', body.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": { "method": "GET", "url": "{{base_url}}/tasks/{{task_id}}/result" }
+        },
+        {
+          "name": "保存审查结果",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"case_id\": 0, \"overall_risk_level\": \"high\", \"summary_text\": \"示例摘要\", \"focus_points_json\": [\"关注点1\"], \"comment_text\": \"示例回写内容\"}"
+            },
+            "url": "{{base_url}}/tasks/{{task_id}}/result"
+          }
+        },
+        {
+          "name": "评论回写",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"instance_id\": \"{{approval_code}}\", \"review_id\": 1}" },
+            "url": "{{base_url}}/tasks/{{task_id}}/comment"
+          }
+        }
+      ]
+    },
+    {
+      "name": "日志",
+      "item": [
+        {
+          "name": "任务日志",
+          "request": { "method": "GET", "url": "{{base_url}}/tasks/{{task_id}}/logs" }
+        }
+      ]
+    },
+    {
+      "name": "规则管理",
+      "item": [
+        {
+          "name": "规则列表",
+          "request": { "method": "GET", "url": "{{base_url}}/rules" }
+        },
+        {
+          "name": "新建规则",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rule_code\": \"R099\", \"rule_name\": \"示例规则\", \"risk_level\": \"medium\", \"rule_status\": \"enabled\", \"match_mode\": \"keyword\", \"match_text\": \"示例关键词\", \"suggestion_text\": \"示例建议\"}"
+            },
+            "url": "{{base_url}}/rules"
+          }
+        },
+        {
+          "name": "更新规则",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rule_name\": \"示例规则-改\", \"risk_level\": \"high\", \"match_mode\": \"keyword\", \"match_text\": \"示例关键词\", \"suggestion_text\": \"更新后的建议\"}"
+            },
+            "url": "{{base_url}}/rules/{{rule_id}}"
+          }
+        },
+        {
+          "name": "启停规则",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"rule_status\": \"disabled\"}" },
+            "url": "{{base_url}}/rules/{{rule_id}}/status"
+          }
+        }
+      ]
+    }
+  ]
+}

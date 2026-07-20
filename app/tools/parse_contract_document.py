@@ -39,6 +39,7 @@ def parse_contract_document(document_id: int, db=None) -> dict[str, Any]:
             "parse_error": None,
             "extract_method": meta.get("method"),
             "llm_model": meta.get("model"),
+            "ocr_meta": parsed.get("ocr_meta"),
         }
     finally:
         if own:
