@@ -4,13 +4,16 @@ from typing import Any
 from app.core.constants import ParseStatus
 from app.core.database import SessionLocal
 from app.core.exceptions import BizException, Errors
-from app.engine.field_extractor import extract_fields
+from app.engine.llm_extractor import extract_smart
 from app.engine.parser import parse_file
 from app.models import ApprovalAttachment
 
 
 def parse_contract_document(document_id: int, db=None) -> dict[str, Any]:
-    """document_id 对应 approval_attachments.id，按其 file_path 解析。"""
+    """document_id 对应 approval_attachments.id，按其 file_path 解析。
+
+    字段提取优先用 LLM（配置了 LLM_API_KEY 时），失败或未配置则自动回退正则。
+    """
     own = db is None
     db = db or SessionLocal()
     try:
@@ -19,9 +22,12 @@ def parse_contract_document(document_id: int, db=None) -> dict[str, Any]:
             raise BizException(*Errors.NOT_FOUND, data={"document_id": document_id})
 
         parsed = parse_file(attachment.file_path)  # 失败抛 DOC_EMPTY / OCR_FAILED
-        basic_info, clause_info, snippets = extract_fields(parsed)
+        basic_info, clause_info, snippets, meta = extract_smart(parsed)
         # 注入合同原文，供规则引擎做全文匹配（keyword/regex/threshold）
-        basic_info["_full_text"] = parsed.get("text", "")
+        full_text = parsed.get("text", "")
+        for table_text in (parsed.get("tables") or []):
+            full_text += "\n" + table_text
+        basic_info["_full_text"] = full_text
 
         return {
             "task_id": attachment.task_id,
@@ -31,6 +37,8 @@ def parse_contract_document(document_id: int, db=None) -> dict[str, Any]:
             "clause_info": clause_info,
             "snippets": snippets,
             "parse_error": None,
+            "extract_method": meta.get("method"),
+            "llm_model": meta.get("model"),
         }
     finally:
         if own:

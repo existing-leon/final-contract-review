@@ -44,6 +44,8 @@ def client(engine, tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
     # 强制 mock 模式 + 附件写入临时目录，避免依赖真实审批系统/MySQL/磁盘
     monkeypatch.setattr(config.settings, "MOCK_APPROVAL", True, raising=False)
     monkeypatch.setattr(config.settings, "ATTACHMENT_DIR", str(tmp_path), raising=False)
+    monkeypatch.setattr(config.settings, "LLM_API_KEY", "", raising=False)
+    monkeypatch.setattr(config.settings, "OCR_USE_LAYOUT", False, raising=False)
     # 测试不依赖真实 PDF / pdfplumber，强制 mock 走纯文本 fallback
     import app.services.approval_client as _ac
 

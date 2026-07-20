@@ -13,6 +13,8 @@ loguru==0.7.*
 python-multipart==0.0.*
 pdfplumber
 python-docx
+# OCR：百度 PaddleOCR（主，支持版面分析 + 表格还原）；安装较重，按需启用
+paddleocr
+# 轻量 OCR 回退（可选）
 rapidocr-onnxruntime
-# paddleocr
 reportlab

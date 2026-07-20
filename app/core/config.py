@@ -43,8 +43,18 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
 
+    # LLM 请求超时（秒）
+    LLM_TIMEOUT: int = 60
+    # LLM 连接：False=忽略系统/环境代理直连（dashscope 等国内服务推荐，避免代理导致 SSL EOF）
+    LLM_TRUST_ENV: bool = False
+    # LLM 调用失败重试次数
+    LLM_MAX_RETRIES: int = 3
+
     # 演示模式：True 时审批系统接口返回 mock 数据（开箱可演示）；对接真实审批系统时置 False
     MOCK_APPROVAL: bool = True
+
+    # OCR 版面分析：True 时扫描件优先用 PaddleOCR PP-Structure 做版面+表格还原
+    OCR_USE_LAYOUT: bool = True
 
     @property
     def database_url(self) -> str:
