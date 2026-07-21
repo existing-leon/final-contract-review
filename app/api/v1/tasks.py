@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core import response
-from app.core.constants import TaskStatus
+from app.core.constants import RoleName, TaskStatus
 from app.core.database import get_db
 from app.core.exceptions import BizException
+from app.core.security import get_current_user, require_role
 from app.engine.state_machine import can_transition
-from app.models import ApprovalTask
+from app.models import ApprovalTask, User
 from app.schemas.approval import PullRequest
 from app.schemas.task import RetryRequest, TaskOut
 from app.services import fetch_service
@@ -15,7 +16,11 @@ router = APIRouter()
 
 
 @router.post("/pull")
-def pull(body: PullRequest, db: Session = Depends(get_db)):
+def pull(
+    body: PullRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
     """拉取并按 approval_code 去重。"""
     return response.success(fetch_service.pull_and_dedupe(db, body.limit))
 
@@ -28,6 +33,7 @@ def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     q = db.query(ApprovalTask)
     if task_status:
@@ -50,7 +56,7 @@ def list_tasks(
 
 
 @router.get("/{task_id}")
-def get_task(task_id: int, db: Session = Depends(get_db)):
+def get_task(task_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     task = db.get(ApprovalTask, task_id)
     if not task:
         raise BizException(1002, "任务不存在")
@@ -58,7 +64,12 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{task_id}/retry")
-def retry(task_id: int, body: RetryRequest, db: Session = Depends(get_db)):
+def retry(
+    task_id: int,
+    body: RetryRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_role(RoleName.ADMIN)),
+):
     task = db.get(ApprovalTask, task_id)
     if not task:
         raise BizException(1002, "任务不存在")

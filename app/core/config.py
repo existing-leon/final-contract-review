@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     DB_HOST: str = "127.0.0.1"
     DB_PORT: int = 3306
     DB_USER: str = "root"
-    DB_PASSWORD: str = ""
+    DB_PASSWORD: str = "123456"
     DB_NAME: str = "contract_review"
 
     # Redis
@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # 审批系统接入
     APPROVAL_BASE_URL: str = "https://approval.example.com"
     APPROVAL_API_KEY: str = ""
+
+    # JWT 认证
+    SECRET_KEY: str = "change-me-in-prod"
+    JWT_ALGORITHM: str = "HS256"
+    TOKEN_EXPIRE_MINUTES: int = 60 * 24  # access token 有效期（分钟），默认 24 小时
 
     # 附件本地存储
     ATTACHMENT_DIR: str = "./storage"

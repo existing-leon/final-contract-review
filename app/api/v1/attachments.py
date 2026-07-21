@@ -3,9 +3,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core import response
+from app.core.constants import RoleName
 from app.core.database import get_db
 from app.core.exceptions import BizException
-from app.models import ApprovalAttachment
+from app.core.security import get_current_user, require_role
+from app.models import ApprovalAttachment, User
 from app.schemas.attachment import AttachmentOut, DownloadRequest
 from app.services import attachment_service
 
@@ -13,7 +15,9 @@ router = APIRouter()
 
 
 @router.get("/tasks/{task_id}/attachments")
-def list_attachments(task_id: int, db: Session = Depends(get_db)):
+def list_attachments(
+    task_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+):
     items = attachment_service.list_attachments(db, task_id)
     return response.success([AttachmentOut.model_validate(a).model_dump() for a in items])
 
@@ -24,6 +28,7 @@ def download(
     attachment_id: str,
     body: DownloadRequest,
     db: Session = Depends(get_db),
+    _user: User = Depends(require_role(RoleName.ADMIN)),
 ):
     att = attachment_service.download_and_save(
         db, task_id, attachment_id, body.instance_id, body.file_name
@@ -32,7 +37,9 @@ def download(
 
 
 @router.get("/attachments/{attachment_id}/file")
-def get_file(attachment_id: int, db: Session = Depends(get_db)):
+def get_file(
+    attachment_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)
+):
     att = db.get(ApprovalAttachment, attachment_id)
     if not att or not att.file_path:
         raise BizException(1002, "附件不存在")

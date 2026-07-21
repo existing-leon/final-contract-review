@@ -7,6 +7,7 @@ from app.models.review_result import ReviewResult
 from app.models.review_rule import ReviewRule
 from app.models.rule_hit import RuleHit
 from app.models.task_log import TaskLog
+from app.models.user import User
 
 __all__ = [
     "ApprovalTask",
@@ -17,4 +18,5 @@ __all__ = [
     "ReviewResult",
     "CommentLog",
     "TaskLog",
+    "User",
 ]

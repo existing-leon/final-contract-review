@@ -29,6 +29,7 @@ class Errors:
     UNAUTHORIZED = (1001, "未授权")
     NOT_FOUND = (1002, "资源不存在")
     INVALID_STATE = (1003, "非法状态迁移")
+    FORBIDDEN = (1004, "无权访问")
     ATTACHMENT_MISSING = (2001, "附件缺失")
     DOC_EMPTY = (2002, "文档内容为空")
     OCR_FAILED = (2003, "OCR 识别失败")

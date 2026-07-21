@@ -75,3 +75,10 @@ class LogType:
     REVIEW = "review"
     COMMENT = "comment"
     STATE = "state"
+
+
+class RoleName:
+    """登录用户角色（与 PRD 权限矩阵对齐）。"""
+
+    ADMIN = "admin"  # 系统管理员（运维）
+    LEGAL = "legal"  # 法务审核人（业务）
